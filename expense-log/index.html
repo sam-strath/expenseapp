@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Expenses">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Expense Log</title>
+<style>
+:root{--bg:#f6f5f1;--panel:#fff;--ink:#1c1e21;--muted:#6b6f76;--line:#dcdad3;--accent:#0b6b4f;--accent-ink:#fff;--warn:#9a5b00;--warn-bg:#fff3d6;--danger:#b3261e;--shadow:0 1px 2px rgba(0,0,0,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#16181c;--panel:#20242a;--ink:#eceae4;--muted:#9aa0a8;--line:#343a42;--accent:#3fbf93;--accent-ink:#06261b;--warn:#f0b24a;--warn-bg:#3a2d12;--danger:#ff8a80;--shadow:none}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(76px + env(safe-area-inset-bottom)) env(safe-area-inset-left)}
+main{max-width:640px;margin:0 auto;padding:14px 16px 24px}
+h1{font-size:24px;margin:6px 0 14px}
+h2{font-size:18px;margin:0 0 8px}
+label{display:block;font-size:13px;color:var(--muted);margin:14px 0 4px;font-weight:600}
+input,select,textarea{width:100%;font:inherit;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);appearance:none;-webkit-appearance:none}
+input[type=date]{min-height:48px}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:10px}.row>*{flex:1;min-width:0}
+button{font:inherit;font-weight:600;border:0;border-radius:12px;padding:14px 16px;background:var(--accent);color:var(--accent-ink);cursor:pointer;min-height:50px}
+button.sec{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+button.danger{background:transparent;color:var(--danger);border:1px solid var(--danger)}
+button:disabled{opacity:.45}
+.big{width:100%;margin-top:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+.note{color:var(--muted);font-size:14px}
+.photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.photos .ph{position:relative;width:84px;height:112px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:#0002}
+.photos img{width:100%;height:100%;object-fit:cover;display:block}
+.photos .ph button{position:absolute;top:3px;right:3px;min-height:0;width:26px;height:26px;padding:0;border-radius:13px;background:#000a;color:#fff;font-size:16px;line-height:1}
+.photos .add{display:flex;align-items:center;justify-content:center;width:84px;height:112px;border:2px dashed var(--line);border-radius:8px;color:var(--muted);font-size:13px;text-align:center;padding:4px}
+.item{display:flex;gap:12px;align-items:center;padding:10px;border-bottom:1px solid var(--line);cursor:pointer}
+.item:last-child{border-bottom:0}
+.item img,.item .nophoto{width:52px;height:68px;border-radius:6px;object-fit:cover;flex:none;background:#0002;border:1px solid var(--line)}
+.item .nophoto{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);text-align:center}
+.item .mid{flex:1;min-width:0}
+.item .amt{font-weight:700;white-space:nowrap}
+.item .sub{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{display:inline-block;font-size:11px;border-radius:6px;padding:1px 6px;background:var(--warn-bg);color:var(--warn);margin-left:6px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;color:var(--muted);border-radius:0;font-size:12px;padding:10px 0 8px;min-height:56px;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button.on{color:var(--accent)}
+nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.hidden{display:none!important}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + env(safe-area-inset-bottom));background:#111d;color:#fff;padding:10px 16px;border-radius:20px;font-size:15px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90%}
+#toast.show{opacity:1}
+#editor{position:fixed;inset:0;background:var(--bg);z-index:40;overflow:auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) 40px env(safe-area-inset-left)}
+.err{color:var(--danger);font-size:14px;margin-top:6px;min-height:1em}
+</style>
+</head>
+<body>
+<main>
+  <section id="tab-add">
+    <h1>New expense</h1>
+    <div id="bannerAdd"></div>
+    <form id="addForm" autocomplete="off" novalidate></form>
+  </section>
+
+  <section id="tab-log" class="hidden">
+    <h1>Expenses</h1>
+    <div id="logSummary" class="note" style="margin-bottom:10px"></div>
+    <div class="card" id="logList" style="padding:4px 4px"></div>
+  </section>
+
+  <section id="tab-export" class="hidden">
+    <h1>Export</h1>
+    <div class="card">
+      <h2>Make a zip to upload to Claude</h2>
+      <p class="note" style="margin-top:0">The zip holds every receipt photo plus <b>metadata.json</b> and <b>expenses.csv</b>. Nothing is ever deleted from this phone by exporting.</p>
+      <div id="exportCounts" class="note"></div>
+      <button class="big" id="btnNew">Build zip: not yet exported</button>
+      <button class="big sec" id="btnAll" style="margin-top:10px">Build zip: everything</button>
+      <div id="exportResult" style="margin-top:14px"></div>
+    </div>
+    <div class="card">
+      <h2>Storage</h2>
+      <div id="storageInfo" class="note"></div>
+    </div>
+    <div class="card">
+      <h2>Using it offline</h2>
+      <p class="note" style="margin:0">Open the app once with internet, then it works with no signal at all. There is no account and no sign-in. Everything stays on this phone until you export it.</p>
+    </div>
+  </section>
+</main>
+
+<div id="editor" class="hidden"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<nav>
+  <button data-tab="add" class="on"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Add</button>
+  <button data-tab="log"><svg viewBox="0 0 24 24"><path d="M5 4h14v16l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 9h6M9 13h6"/></svg>Log <span id="logBadge"></span></button>
+  <button data-tab="export"><svg viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 14v6h16v-6"/></svg>Export</button>
+</nav>
+
+<script>
+'use strict';
+/* ---------- tiny helpers ---------- */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2600); }
+function parseAmount(s){ s = String(s).trim().replace(/\s/g, ''); if (!s) return null;
+  if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');      // 1.234,56
+  else if (/^\d+,\d{1,3}$/.test(s)) s = s.replace(',', '.');                              // 12,50
+  else s = s.replace(/,/g, '');                                                           // 1,234.56
+  const n = Number(s); return Number.isFinite(n) && n >= 0 && /^\d*\.?\d+$|^\d+\.?$/.test(s) ? n : null; }
+
+/* ---------- IndexedDB ---------- */
+let db;
+function openDB(){ return new Promise((res, rej) => {
+  const r = indexedDB.open('expense-log', 1);
+  r.onupgradeneeded = () => { const d = r.result;
+    d.createObjectStore('expenses', {keyPath:'id', autoIncrement:true});
+    const p = d.createObjectStore('photos', {keyPath:'id', autoIncrement:true}); p.createIndex('expenseId', 'expenseId');
+    d.createObjectStore('meta'); };
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+const tx = (stores, mode, fn) => new Promise((res, rej) => { const t = db.transaction(stores, mode); let out; 
+  Promise.resolve(fn(t)).then(v => out = v); t.oncomplete = () => res(out); t.onerror = t.onabort = () => rej(t.error || new Error('db error')); });
+const rq = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const getMeta = k => tx(['meta'], 'readonly', t => rq(t.objectStore('meta').get(k)));
+const setMeta = (k, v) => tx(['meta'], 'readwrite', t => rq(t.objectStore('meta').put(v, k)));
+const allExpenses = () => tx(['expenses'], 'readonly', t => rq(t.objectStore('expenses').getAll()));
+const photosFor = id => tx(['photos'], 'readonly', t => rq(t.objectStore('photos').index('expenseId').getAll(id)));
+
+async function saveExpense(exp, newPhotos, removePhotoIds){
+  return tx(['expenses','photos'], 'readwrite', async t => {
+    const es = t.objectStore('expenses'), ps = t.objectStore('photos');
+    const id = await rq(es.put(exp));   // put with id => update; without => add
+    exp.id = id;
+    for (const pid of removePhotoIds || []) ps.delete(pid);
+    for (const p of newPhotos) ps.add({expenseId:id, blob:p.blob, w:p.w, h:p.h});
+    return id; }); }
+function deleteExpense(id){ return tx(['expenses','photos'], 'readwrite', async t => {
+  t.objectStore('expenses').delete(id);
+  const ps = t.objectStore('photos'); const keys = await rq(ps.index('expenseId').getAllKeys(id)); keys.forEach(k => ps.delete(k)); }); }
+
+/* ---------- image handling ---------- */
+async function processImage(file){
+  const MAX = 2400;
+  try {
+    const bmp = await createImageBitmap(file, {imageOrientation:'from-image'});
+    const sc = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').drawImage(bmp, 0, 0, w, h); bmp.close && bmp.close();
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+    if (!blob) throw new Error('encode failed');
+    return {blob, w, h};
+  } catch (e) {   // fall back to the untouched original so the photo is never lost
+    return {blob:file, w:null, h:null};
+  } }
+async function thumbOf(blob){
+  try { const bmp = await createImageBitmap(blob, {imageOrientation:'from-image'});
+    const sc = 200 / Math.max(bmp.width, bmp.height), w = Math.max(1, Math.round(bmp.width*sc)), h = Math.max(1, Math.round(bmp.height*sc));
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    return await new Promise(r => c.toBlob(r, 'image/jpeg', 0.7)); } catch (e) { return null; } }
+
+/* ---------- form (used for both Add and Edit) ---------- */
+let known = {projects:[], currencies:[]};
+async function refreshKnown(){ const ex = await allExpenses(); const cnt = (k) => { const m = {}; ex.forEach(e => { if (e[k]) m[e[k]] = (m[e[k]]||0) + 1; });
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(x=>x[0]); }; known = {projects:cnt('project'), currencies:cnt('currency')}; }
+
+function formHtml(v, editing){
+  return `
+  <label for="f-photo">Receipt photos</label>
+  <div class="photos" data-photos></div>
+  <input id="f-photo" type="file" accept="image/*" capture="environment" class="hidden" data-cam>
+  <input type="file" accept="image/*" multiple class="hidden" data-lib>
+  <div class="row" style="margin-top:8px"><button type="button" class="sec" data-act="cam">Take photo</button><button type="button" class="sec" data-act="lib">Choose from photos</button></div>
+  <label>Date</label><input type="date" name="date" value="${esc(v.date)}" required>
+  <label>Project</label><input type="text" name="project" value="${esc(v.project)}" list="dl-projects" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="e.g. Aleppo workshops">
+  <div class="row">
+    <div><label>Currency</label><input type="text" name="currency" value="${esc(v.currency)}" list="dl-currencies" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="GBP, USD, SYP..."></div>
+    <div><label>Amount</label><input type="text" name="amount" value="${esc(v.amount)}" inputmode="decimal" placeholder="0.00" required></div>
+  </div>
+  <label>Note (optional)</label><input type="text" name="note" value="${esc(v.note)}" placeholder="What was it for?">
+  <div class="err" data-err></div>
+  <button type="submit" class="big">${editing ? 'Save changes' : 'Save expense'}</button>
+  <datalist id="dl-projects">${known.projects.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
+  <datalist id="dl-currencies">${known.currencies.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>`; }
+
+function wireForm(root, state, onSubmit){
+  const drawPhotos = () => { const box = $('[data-photos]', root); const urls = [];
+    box.innerHTML = '';
+    [...state.existing, ...state.added].forEach((p, i) => { const d = document.createElement('div'); d.className = 'ph';
+      const u = URL.createObjectURL(p.thumb || p.blob); state.urls.push(u);
+      d.innerHTML = `<img alt="Receipt photo ${i+1}" src="${u}"><button type="button" aria-label="Remove photo">&times;</button>`;
+      $('button', d).onclick = () => { if (p.id != null) { state.existing = state.existing.filter(x => x !== p); state.removed.push(p.id); } else state.added = state.added.filter(x => x !== p); drawPhotos(); };
+      box.appendChild(d); });
+    if (![...state.existing, ...state.added].length) box.innerHTML = '<div class="add">No photo yet</div>'; };
+  const take = async files => { for (const f of files) { state.added.push(await processImage(f)); } drawPhotos(); };
+  root.querySelector('[data-act=cam]').onclick = () => $('[data-cam]', root).click();
+  root.querySelector('[data-act=lib]').onclick = () => $('[data-lib]', root).click();
+  $('[data-cam]', root).onchange = async e => { const f = [...e.target.files]; e.target.value = ''; await take(f); };
+  $('[data-lib]', root).onchange = async e => { const f = [...e.target.files]; e.target.value = ''; await take(f); };
+  root.addEventListener('submit', async e => { e.preventDefault(); const fd = new FormData(root); const err = $('[data-err]', root); err.textContent = '';
+    const date = fd.get('date'), amount = parseAmount(fd.get('amount')), currency = String(fd.get('currency')).trim(), project = String(fd.get('project')).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err.textContent = 'Please choose a date.';
+    if (amount == null) return err.textContent = 'Please enter the amount as a number, e.g. 12.50.';
+    if (!currency) return err.textContent = 'Please enter a currency (free text, e.g. GBP).';
+    const btn = $('button[type=submit]', root); btn.disabled = true;
+    try { await onSubmit({date, amount, currency, project, note:String(fd.get('note')).trim()}); } catch (ex) { err.textContent = 'Could not save: ' + ex.message; btn.disabled = false; } });
+  drawPhotos(); return drawPhotos; }
+
+/* ---------- Add tab ---------- */
+let addState;
+async function renderAdd(){
+  await refreshKnown(); const last = (await getMeta('last')) || {project:'', currency:''};
+  addState = {existing:[], added:[], removed:[], urls:[]};
+  const f = $('#addForm'); f.innerHTML = formHtml({date:todayStr(), project:last.project, currency:last.currency, amount:'', note:''}, false);
+  const fresh = f.cloneNode(true); f.replaceWith(fresh); // drop old listeners
+  wireForm(fresh, addState, async v => {
+    const photos = addState.added.slice();
+    const thumb = photos[0] ? await thumbOf(photos[0].blob) : null;
+    const exp = {createdAt:new Date().toISOString(), ...v, thumb, photoCount:photos.length, exportedAt:null};
+    await saveExpense(exp, photos, []);
+    await setMeta('last', {project:v.project, currency:v.currency});
+    askPersist(); toast(photos.length ? 'Saved' : 'Saved (no photo)');
+    await renderAdd(); updateBadge(); }); }
+
+/* ---------- Log tab ---------- */
+async function renderLog(){
+  const ex = (await allExpenses()).sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+  const pending = ex.filter(e => !e.exportedAt).length;
+  $('#logSummary').textContent = ex.length ? `${ex.length} expenses, ${pending} not yet exported` : '';
+  const list = $('#logList');
+  if (!ex.length) { list.innerHTML = '<p class="note" style="padding:12px">Nothing logged yet.</p>'; return; }
+  list.innerHTML = '';
+  ex.forEach(e => { const d = document.createElement('div'); d.className = 'item'; d.tabIndex = 0;
+    const u = e.thumb ? URL.createObjectURL(e.thumb) : null;
+    d.innerHTML = (u ? `<img alt="" src="${u}">` : '<div class="nophoto">no photo</div>') +
+      `<div class="mid"><div><b>${esc(e.project || '(no project)')}</b>${e.exportedAt ? '' : '<span class="tag">new</span>'}</div><div class="sub">${esc(e.date)}${e.note ? ' · ' + esc(e.note) : ''}${e.photoCount > 1 ? ' · ' + e.photoCount + ' photos' : ''}</div></div>` +
+      `<div class="amt">${esc(Number(e.amount).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:3}))} ${esc(e.currency)}</div>`;
+    d.onclick = () => openEditor(e.id); list.appendChild(d); }); }
+async function updateBadge(){ const ex = await allExpenses(); const n = ex.filter(e => !e.exportedAt).length; $('#logBadge').textContent = n ? `(${n})` : ''; }
+
+/* ---------- Editor ---------- */
+async function openEditor(id){
+  const e = (await allExpenses()).find(x => x.id === id); if (!e) return;
+  await refreshKnown();
+  const existing = (await photosFor(id)).map(p => ({id:p.id, blob:p.blob, thumb:p.blob}));
+  const st = {existing, added:[], removed:[], urls:[]};
+  const ed = $('#editor'); ed.classList.remove('hidden');
+  ed.innerHTML = `<main><div class="row" style="align-items:center;margin-bottom:6px"><h1 style="margin:0">Edit expense</h1><button class="sec" id="edClose" style="flex:none;min-width:90px">Close</button></div><form id="edForm" autocomplete="off" novalidate></form><button class="danger big" id="edDel">Delete this expense</button></main>`;
+  const f = $('#edForm'); f.innerHTML = formHtml({date:e.date, project:e.project, currency:e.currency, amount:String(e.amount), note:e.note}, true);
+  const close = () => { ed.classList.add('hidden'); ed.innerHTML = ''; st.urls.forEach(URL.revokeObjectURL); refreshAll(); };
+  $('#edClose').onclick = close;
+  $('#edDel').onclick = async () => { if (confirm('Delete this expense and its photos from this phone? This cannot be undone.')) { await deleteExpense(id); toast('Deleted'); close(); } };
+  wireForm(f, st, async v => {
+    const all = [...st.existing, ...st.added];
+    const first = all[0]; const thumb = first ? (first.id != null ? await thumbOf(first.blob) : await thumbOf(first.blob)) : null;
+    const exp = {...e, ...v, thumb, photoCount:all.length, exportedAt:null};   // edited => counts as not yet exported
+    await saveExpense(exp, st.added, st.removed); toast('Saved'); close(); }); }
+
+/* ---------- ZIP (store-only) ---------- */
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8){ let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(files){   // files: [{name, data:Uint8Array, date:Date}]
+  const enc = new TextEncoder(), parts = [], central = []; let offset = 0;
+  const u16 = n => new Uint8Array([n & 255, (n >> 8) & 255]), u32 = n => new Uint8Array([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255]);
+  const cat = arr => { let len = 0; arr.forEach(a => len += a.length); const o = new Uint8Array(len); let p = 0; arr.forEach(a => { o.set(a, p); p += a.length; }); return o; };
+  for (const f of files) { const name = enc.encode(f.name), crc = crc32(f.data), d = f.date || new Date();
+    const dt = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF, dd = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+    const lh = cat([u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(dt), u16(dd), u32(crc), u32(f.data.length), u32(f.data.length), u16(name.length), u16(0), name]);
+    parts.push(lh, f.data);
+    central.push(cat([u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(dt), u16(dd), u32(crc), u32(f.data.length), u32(f.data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name]));
+    offset += lh.length + f.data.length; }
+  const cd = cat(central);
+  const end = cat([u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length), u32(cd.length), u32(offset), u16(0)]);
+  return new Blob([...parts, cd, end], {type:'application/zip'}); }
+
+function csvCell(v){ v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+const slug = s => String(s || 'none').normalize('NFKD').replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'none';
+
+let lastZip = null;
+async function buildZip(onlyNew){
+  const all = (await allExpenses()).sort((a,b) => a.id - b.id);
+  const ex = onlyNew ? all.filter(e => !e.exportedAt) : all;
+  if (!ex.length) { toast('Nothing to export'); return; }
+  const out = $('#exportResult'); out.innerHTML = '<p class="note">Building zip&hellip;</p>';
+  const files = [], rows = [], meta = [];
+  for (const e of ex) { const ph = (await photosFor(e.id)).sort((a,b) => a.id - b.id); const names = [];
+    for (let i = 0; i < ph.length; i++) { const name = `photos/${String(e.id).padStart(4,'0')}_${e.date}_${slug(e.project)}${ph.length > 1 ? '_p' + (i+1) : ''}.jpg`;
+      files.push({name, data:new Uint8Array(await ph[i].blob.arrayBuffer())}); names.push(name); }
+    const rec = {id:e.id, date:e.date, project:e.project, currency:e.currency, amount:e.amount, note:e.note, logged_at:e.createdAt, photos:names};
+    meta.push(rec); rows.push([e.id, e.date, e.project, e.currency, e.amount, e.note, e.createdAt, names.join(' | ')]); }
+  const now = new Date(), enc = new TextEncoder();
+  const json = JSON.stringify({app:'Expense Log', exported_at:now.toISOString(), count:meta.length, note:'amount is the figure on the receipt in the stated currency (free text). photos are paths inside this zip.', expenses:meta}, null, 2);
+  const csv = '﻿' + ['id,date,project,currency,amount,note,logged_at,photos', ...rows.map(r => r.map(csvCell).join(','))].join('\r\n');
+  files.unshift({name:'metadata.json', data:enc.encode(json)}, {name:'expenses.csv', data:enc.encode(csv)}, {name:'README.txt', data:enc.encode('Expense Log export. metadata.json and expenses.csv list each expense; photos/ holds the receipt images. Upload this zip to Claude to continue.\n')});
+  const blob = makeZip(files); const fname = `expenses_${todayStr()}_${pad(now.getHours())}${pad(now.getMinutes())}.zip`;
+  lastZip = {blob, fname, ids:ex.map(e => e.id)};
+  const mb = (blob.size / 1e6).toFixed(1);
+  out.innerHTML = `<div class="card" style="margin:0"><b>${esc(fname)}</b><div class="note">${ex.length} expenses, ${files.length - 3} photos, ${mb} MB</div>
+    <button class="big" id="btnShare">Share / Save to Files</button><button class="big sec" id="btnDl" style="margin-top:10px">Download zip</button>
+    <p class="note" style="margin-bottom:0">Tip: choose <b>Save to Files</b>, then upload it to Claude. Marked as exported only after you share or download.</p></div>`;
+  $('#btnShare').onclick = shareZip; $('#btnDl').onclick = downloadZip; }
+async function markExported(ids){ const t = new Date().toISOString(); const all = await allExpenses();
+  await tx(['expenses'], 'readwrite', async tr => { const s = tr.objectStore('expenses'); for (const e of all) if (ids.includes(e.id)) { e.exportedAt = t; s.put(e); } }); refreshAll(); }
+async function shareZip(){ if (!lastZip) return; const file = new File([lastZip.blob], lastZip.fname, {type:'application/zip'});
+  try { if (navigator.canShare && navigator.canShare({files:[file]})) { await navigator.share({files:[file], title:lastZip.fname}); await markExported(lastZip.ids); toast('Shared'); }
+    else downloadZip(); } catch (e) { if (e.name !== 'AbortError') downloadZip(); } }
+async function downloadZip(){ if (!lastZip) return; const a = document.createElement('a'); a.href = URL.createObjectURL(lastZip.blob); a.download = lastZip.fname; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); await markExported(lastZip.ids); }
+
+async function renderExport(){ const ex = await allExpenses(); const n = ex.filter(e => !e.exportedAt).length;
+  $('#exportCounts').textContent = `${ex.length} expenses logged, ${n} not yet exported.`; $('#btnNew').disabled = !n; $('#btnAll').disabled = !ex.length; $('#btnNew').textContent = `Build zip: ${n} not yet exported`;
+  let info = ''; try { if (navigator.storage?.estimate) { const s = await navigator.storage.estimate(); info += `Using ${(s.usage/1e6).toFixed(1)} MB. `; }
+    const p = navigator.storage?.persisted ? await navigator.storage.persisted() : null;
+    info += p ? 'Storage is protected from automatic clean-up.' : window.navigator.standalone ? 'Storage protection not confirmed; export regularly.' : 'Add this app to your Home Screen (Share, then Add to Home Screen) so iOS keeps your data safely.'; } catch (e) {}
+  $('#storageInfo').textContent = info; }
+$('#btnNew').onclick = () => buildZip(true); $('#btnAll').onclick = () => buildZip(false);
+
+/* ---------- navigation / lifecycle ---------- */
+function showTab(t){ ['add','log','export'].forEach(k => $('#tab-' + k).classList.toggle('hidden', k !== t)); document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  if (t === 'log') renderLog(); if (t === 'export') renderExport(); if (t === 'add') renderAddBanner(); window.scrollTo(0, 0); }
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function refreshAll(){ updateBadge(); if (!$('#tab-log').classList.contains('hidden')) renderLog(); if (!$('#tab-export').classList.contains('hidden')) renderExport(); }
+let persistAsked = false; async function askPersist(){ if (persistAsked) return; persistAsked = true; try { await navigator.storage?.persist?.(); } catch (e) {} }
+async function renderAddBanner(){ const ex = await allExpenses(); const n = ex.filter(e => !e.exportedAt).length; const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  let h = ''; if (!standalone) h += '<div class="banner">For safe offline use: tap Share, then <b>Add to Home Screen</b>, and open it from there.</div>';
+  if (n >= 15) h += `<div class="banner">${n} expenses are not yet exported. Consider exporting a zip as a backup.</div>`; $('#bannerAdd').innerHTML = h; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('#tab-add').classList.contains('hidden')) { const d = $('#addForm [name=date]'); if (d && !addDirty()) d.value = todayStr(); } });
+function addDirty(){ const f = $('#addForm'); return !!(f.amount.value || addState.added.length); }
+
+(async () => { try { db = await openDB(); } catch (e) { document.body.innerHTML = '<main><h1>Storage unavailable</h1><p>This browser blocked local storage (private browsing?). Open the app in a normal Safari tab or from the Home Screen.</p></main>'; return; }
+  await renderAdd(); updateBadge(); renderAddBanner();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}); })();
+</script>
+</body>
+</html>
