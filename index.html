@@ -97,6 +97,7 @@ nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;st
       <h2>Using it offline</h2>
       <p class="note" style="margin:0">Open the app once with internet, then it works with no signal at all. There is no account and no sign-in. Everything stays on this phone until you export it.</p>
     </div>
+    <p class="note" style="text-align:center;font-size:12px;margin:18px 0 0" id="verLine"></p>
   </section>
 </main>
 
@@ -112,6 +113,7 @@ nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;st
 
 <script>
 'use strict';
+const APP_VERSION = '1.2.0';
 /* ---------- tiny helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -339,7 +341,7 @@ async function buildZip(onlyNew){
     const rec = {id:e.id, date:e.date, project:e.project, currency:e.currency, amount:e.amount, note:e.note, logged_at:e.createdAt, photos:names};
     meta.push(rec); rows.push([e.id, e.date, e.project, e.currency, e.amount, e.note, e.createdAt, names.join(' | ')]); }
   const now = new Date(), enc = new TextEncoder();
-  const json = JSON.stringify({app:'Expense Log', exported_at:now.toISOString(), count:meta.length, note:'amount is the figure on the receipt in the stated currency (free text). photos are paths inside this zip.', expenses:meta}, null, 2);
+  const json = JSON.stringify({app:'Expense Log', app_version:APP_VERSION, exported_at:now.toISOString(), count:meta.length, note:'amount is the figure on the receipt in the stated currency (free text). photos are paths inside this zip.', expenses:meta}, null, 2);
   const csv = '﻿' + ['id,date,project,currency,amount,note,logged_at,photos', ...rows.map(r => r.map(csvCell).join(','))].join('\r\n');
   files.unshift({name:'metadata.json', data:enc.encode(json)}, {name:'expenses.csv', data:enc.encode(csv)}, {name:'README.txt', data:enc.encode('Expense Log export. metadata.json and expenses.csv list each expense; photos/ holds the receipt images. Upload this zip to Claude to continue.\n')});
   const blob = makeZip(files); const fname = `expenses_${todayStr()}_${pad(now.getHours())}${pad(now.getMinutes())}.zip`;
@@ -356,7 +358,7 @@ async function shareZip(){ if (!lastZip) return; const file = new File([lastZip.
     else downloadZip(); } catch (e) { if (e.name !== 'AbortError') downloadZip(); } }
 async function downloadZip(){ if (!lastZip) return; const a = document.createElement('a'); a.href = URL.createObjectURL(lastZip.blob); a.download = lastZip.fname; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); await markExported(lastZip.ids); }
 
-async function renderExport(){ const ex = await liveExpenses(); const n = ex.filter(e => !e.exportedAt).length;
+async function renderExport(){ $('#verLine').textContent = 'Expense Log v' + APP_VERSION; const ex = await liveExpenses(); const n = ex.filter(e => !e.exportedAt).length;
   $('#exportCounts').textContent = `${ex.length} expenses logged, ${n} not yet exported.`; $('#btnNew').disabled = !n; $('#btnAll').disabled = !ex.length; $('#btnNew').textContent = `Build zip: ${n} not yet exported`;
   let info = ''; try { if (navigator.storage?.estimate) { const s = await navigator.storage.estimate(); info += `Using ${(s.usage/1e6).toFixed(1)} MB. `; }
     const p = navigator.storage?.persisted ? await navigator.storage.persisted() : null;
