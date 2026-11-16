@@ -118,7 +118,7 @@ nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;st
 
 <script>
 'use strict';
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 /* ---------- tiny helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -140,12 +140,13 @@ function openDB(){ return new Promise((res, rej) => {
     const p = d.createObjectStore('photos', {keyPath:'id', autoIncrement:true}); p.createIndex('expenseId', 'expenseId');
     d.createObjectStore('meta'); };
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+let cache = null;   // in-memory copy of the expense list (thumbnails included); cleared after every write
 const tx = (stores, mode, fn) => new Promise((res, rej) => { const t = db.transaction(stores, mode); let out; 
-  Promise.resolve(fn(t)).then(v => out = v); t.oncomplete = () => res(out); t.onerror = t.onabort = () => rej(t.error || new Error('db error')); });
+  Promise.resolve(fn(t)).then(v => out = v); t.oncomplete = () => { if (mode === 'readwrite') cache = null; res(out); }; t.onerror = t.onabort = () => rej(t.error || new Error('db error')); });
 const rq = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const getMeta = k => tx(['meta'], 'readonly', t => rq(t.objectStore('meta').get(k)));
 const setMeta = (k, v) => tx(['meta'], 'readwrite', t => rq(t.objectStore('meta').put(v, k)));
-const allExpenses = () => tx(['expenses'], 'readonly', t => rq(t.objectStore('expenses').getAll()));
+const allExpenses = async () => cache || (cache = await tx(['expenses'], 'readonly', t => rq(t.objectStore('expenses').getAll())));
 const photosFor = id => tx(['photos'], 'readonly', t => rq(t.objectStore('photos').index('expenseId').getAll(id)));
 
 async function saveExpense(exp, newPhotos, removePhotoIds){
@@ -255,45 +256,58 @@ async function renderAdd(){
     await renderAdd(); updateBadge(); }); }
 
 /* ---------- Log tab ---------- */
-let logView = 'list', selMode = false; const picked = new Set(); let logIds = [];
+let logView = 'list', selMode = false; const picked = new Set(); let cur = {ex:[], trash:false, selecting:false};
+const urlCache = new Map();
+function thumbUrl(e){ if (!e.thumb) return null; const k = e.id + '|' + e.thumb.size; let u = urlCache.get(k); if (!u) { u = URL.createObjectURL(e.thumb); urlCache.set(k, u); } return u; }
+const fmtAmt = e => Number(e.amount).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:3});
+function itemHtml(e, trash, selecting){
+  const u = thumbUrl(e), left = trash ? Math.max(0, KEEP_DAYS - Math.floor((Date.now() - Date.parse(e.deletedAt)) / DAY)) : 0;
+  return (selecting ? '<div class="ck">&#10003;</div>' : '') + (u ? `<img alt="" loading="lazy" decoding="async" src="${u}">` : '<div class="nophoto">no photo</div>') +
+    `<div class="mid"><div><b>${esc(e.project || '(no project)')}</b>${!trash && !e.exportedAt ? '<span class="tag">new</span>' : ''}</div><div class="sub">${esc(e.date)}${e.payment_method ? ' &middot; ' + esc(e.payment_method) : ''}${e.note ? ' &middot; ' + esc(e.note) : ''}${e.photoCount > 1 ? ' &middot; ' + e.photoCount + ' photos' : ''}${trash ? ' &middot; ' + left + ' days left' : ''}</div></div>` +
+    `<div class="amt">${esc(fmtAmt(e))} ${esc(e.currency)}</div>`; }
 async function renderLog(){
   const trash = logView === 'deleted';
-  const ex = (trash ? await trashExpenses() : await liveExpenses()).sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+  const ex = (trash ? await trashExpenses() : await liveExpenses()).slice().sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
   const trashN = trash ? ex.length : (await trashExpenses()).length;
-  logIds = ex.map(e => e.id); [...picked].forEach(id => { if (!logIds.includes(id)) picked.delete(id); });
-  const selecting = selMode || trash;
-  const head = $('#logHead');
-  head.innerHTML = `<h1>${trash ? 'Recently deleted' : 'Expenses'}</h1>` + (trash ? '<button class="sec" id="hBack">Back</button>' : '') + (ex.length ? `<button class="sec" id="hSel">${selecting && !trash ? 'Cancel' : trash ? (picked.size === ex.length ? 'Clear' : 'Select all') : 'Select'}</button>` : '');
-  if (selecting && !trash && ex.length) { head.insertAdjacentHTML('beforeend', `<button class="sec" id="hAll">${picked.size === ex.length ? 'Clear' : 'All'}</button>`); }
+  const selecting = selMode || trash; cur = {ex, trash, selecting};
+  const ids = new Set(ex.map(e => e.id)); [...picked].forEach(id => { if (!ids.has(id)) picked.delete(id); });
   const pending = ex.filter(e => !e.exportedAt).length;
   $('#logSummary').textContent = trash ? `Items are removed for good ${KEEP_DAYS} days after deletion. They are not included in exports.` : ex.length ? `${ex.length} expenses, ${pending} not yet exported` : '';
   const list = $('#logList');
   if (!ex.length) list.innerHTML = `<p class="note" style="padding:12px">${trash ? 'Nothing deleted.' : 'Nothing logged yet.'}</p>`;
-  else { list.innerHTML = '';
-    ex.forEach(e => { const d = document.createElement('div'); d.className = 'item' + (picked.has(e.id) ? ' picked' : ''); d.tabIndex = 0;
-      const u = e.thumb ? URL.createObjectURL(e.thumb) : null;
-      const left = trash ? Math.max(0, KEEP_DAYS - Math.floor((Date.now() - Date.parse(e.deletedAt)) / DAY)) : 0;
-      d.innerHTML = (selecting ? '<div class="ck">&#10003;</div>' : '') + (u ? `<img alt="" src="${u}">` : '<div class="nophoto">no photo</div>') +
-        `<div class="mid"><div><b>${esc(e.project || '(no project)')}</b>${!trash && !e.exportedAt ? '<span class="tag">new</span>' : ''}</div><div class="sub">${esc(e.date)}${e.payment_method ? ' &middot; ' + esc(e.payment_method) : ''}${e.note ? ' &middot; ' + esc(e.note) : ''}${e.photoCount > 1 ? ' &middot; ' + e.photoCount + ' photos' : ''}${trash ? ' &middot; ' + left + ' days left' : ''}</div></div>` +
-        `<div class="amt">${esc(Number(e.amount).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:3}))} ${esc(e.currency)}</div>`;
-      d.onclick = () => { if (selecting) { picked.has(e.id) ? picked.delete(e.id) : picked.add(e.id); renderLog(); } else openEditor(e.id); };
-      list.appendChild(d); }); }
+  else { const frag = document.createDocumentFragment();
+    ex.forEach(e => { const d = document.createElement('div'); d.className = 'item' + (picked.has(e.id) ? ' picked' : ''); d.tabIndex = 0; d.dataset.id = e.id; d.innerHTML = itemHtml(e, trash, selecting); frag.appendChild(d); });
+    list.innerHTML = ''; list.appendChild(frag); }
   $('#logFoot').innerHTML = !trash && trashN ? `<button class="sec" id="fTrash" style="width:100%">Recently deleted (${trashN})</button>` : '';
+  const ft = $('#fTrash'); if (ft) ft.onclick = () => { logView = 'deleted'; selMode = false; picked.clear(); renderLog(); window.scrollTo(0, 0); };
+  renderBars(); }
+// one click handler for the whole list (cheap, and no per-item listeners to rebuild)
+$('#logList').addEventListener('click', ev => { const d = ev.target.closest('.item'); if (!d) return; const id = +d.dataset.id;
+  if (cur.selecting) { if (picked.has(id)) { picked.delete(id); d.classList.remove('picked'); } else { picked.add(id); d.classList.add('picked'); } renderBars(); }
+  else openEditor(id); });
+function syncPicked(){ document.querySelectorAll('#logList .item').forEach(d => d.classList.toggle('picked', picked.has(+d.dataset.id))); renderBars(); }
+function renderBars(){
+  const {ex, trash, selecting} = cur, n = picked.size, all = ex.length && n === ex.length;
+  const head = $('#logHead');
+  head.innerHTML = `<h1>${trash ? 'Recently deleted' : 'Expenses'}</h1>` + (trash ? '<button class="sec" id="hBack">Back</button>' : '') +
+    (ex.length ? `<button class="sec" id="hSel">${trash ? (all ? 'Clear' : 'Select all') : selecting ? 'Cancel' : 'Select'}</button>` : '') +
+    (selecting && !trash && ex.length ? `<button class="sec" id="hAll">${all ? 'Clear' : 'All'}</button>` : '');
   $('#logSpacer').style.height = selecting && ex.length ? '80px' : '0';
-  const bar = $('#actionBar'), n = picked.size;
+  const bar = $('#actionBar');
   if (selecting && ex.length && !$('#tab-log').classList.contains('hidden')) { bar.classList.remove('hidden');
     bar.innerHTML = trash ? `<button id="aRestore" ${n ? '' : 'disabled'}>Restore${n ? ' (' + n + ')' : ''}</button><button class="danger" id="aForever" ${n ? '' : 'disabled'}>Delete forever${n ? ' (' + n + ')' : ''}</button>`
       : `<button class="danger" id="aDelete" ${n ? '' : 'disabled'}>Delete${n ? ' (' + n + ')' : ''}</button>`; } else bar.classList.add('hidden');
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
-  on('#hSel', () => { if (trash) { if (picked.size === ex.length) picked.clear(); else logIds.forEach(i => picked.add(i)); } else { selMode = !selMode; picked.clear(); } renderLog(); });
-  on('#hAll', () => { if (picked.size === ex.length) picked.clear(); else logIds.forEach(i => picked.add(i)); renderLog(); });
+  const toggleAll = () => { if (picked.size === ex.length) picked.clear(); else ex.forEach(e => picked.add(e.id)); syncPicked(); };
+  on('#hSel', () => { if (trash) toggleAll(); else { selMode = !selMode; picked.clear(); renderLog(); } });
+  on('#hAll', toggleAll);
   on('#hBack', () => { logView = 'list'; selMode = false; picked.clear(); renderLog(); });
-  on('#fTrash', () => { logView = 'deleted'; selMode = false; picked.clear(); renderLog(); window.scrollTo(0, 0); });
+  const busy = async (msg, fn) => { toast(msg); bar.querySelectorAll('button').forEach(b => b.disabled = true); await fn(); };
   on('#aDelete', async () => { const ids = [...picked]; if (!ids.length) return; if (!confirm(`Move ${ids.length} expense${ids.length > 1 ? 's' : ''} to Recently deleted? You can restore them for ${KEEP_DAYS} days.`)) return;
-    await softDelete(ids); picked.clear(); selMode = false; toast(`${ids.length} moved to Recently deleted`); refreshAll(); });
-  on('#aRestore', async () => { const ids = [...picked]; await restoreExpenses(ids); picked.clear(); toast(`${ids.length} restored`); refreshAll(); });
+    await busy('Moving…', () => softDelete(ids)); picked.clear(); selMode = false; toast(`${ids.length} moved to Recently deleted`); refreshAll(); });
+  on('#aRestore', async () => { const ids = [...picked]; await busy('Restoring…', () => restoreExpenses(ids)); picked.clear(); toast(`${ids.length} restored`); refreshAll(); });
   on('#aForever', async () => { const ids = [...picked]; if (!ids.length) return; if (!confirm(`Permanently delete ${ids.length} expense${ids.length > 1 ? 's' : ''} and their photos? This cannot be undone.`)) return;
-    await hardDelete(ids); picked.clear(); toast('Deleted for good'); refreshAll(); });
+    await busy('Deleting…', () => hardDelete(ids)); picked.clear(); toast('Deleted for good'); refreshAll(); });
 }
 async function updateBadge(){ const ex = await liveExpenses(); const n = ex.filter(e => !e.exportedAt).length; $('#logBadge').textContent = n ? `(${n})` : ''; }
 
