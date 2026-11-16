@@ -55,6 +55,11 @@ nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;st
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + env(safe-area-inset-bottom));background:#111d;color:#fff;padding:10px 16px;border-radius:20px;font-size:15px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90%}
 #toast.show{opacity:1}
 #editor{position:fixed;inset:0;background:var(--bg);z-index:40;overflow:auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) 40px env(safe-area-inset-left)}
+#actionBar{position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);padding:10px 14px;display:flex;gap:10px;z-index:30}
+#actionBar button{flex:1;min-height:46px;padding:10px}
+.item .ck{width:24px;height:24px;border-radius:7px;border:2px solid var(--line);flex:none;display:flex;align-items:center;justify-content:center;color:transparent;font-size:15px}
+.item.picked{background:color-mix(in srgb,var(--accent) 12%,transparent)}.item.picked .ck{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.headrow{display:flex;align-items:center;gap:8px;margin:6px 0 10px}.headrow h1{margin:0;flex:1}.headrow button{min-height:40px;padding:8px 14px;font-size:15px}
 .err{color:var(--danger);font-size:14px;margin-top:6px;min-height:1em}
 </style>
 </head>
@@ -67,9 +72,11 @@ nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;st
   </section>
 
   <section id="tab-log" class="hidden">
-    <h1>Expenses</h1>
+    <div class="headrow" id="logHead"></div>
     <div id="logSummary" class="note" style="margin-bottom:10px"></div>
     <div class="card" id="logList" style="padding:4px 4px"></div>
+    <div id="logFoot" style="margin-top:12px"></div>
+    <div id="logSpacer"></div>
   </section>
 
   <section id="tab-export" class="hidden">
@@ -94,6 +101,7 @@ nav svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;st
 </main>
 
 <div id="editor" class="hidden"></div>
+<div id="actionBar" class="hidden"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <nav>
@@ -141,9 +149,17 @@ async function saveExpense(exp, newPhotos, removePhotoIds){
     for (const pid of removePhotoIds || []) ps.delete(pid);
     for (const p of newPhotos) ps.add({expenseId:id, blob:p.blob, w:p.w, h:p.h});
     return id; }); }
-function deleteExpense(id){ return tx(['expenses','photos'], 'readwrite', async t => {
-  t.objectStore('expenses').delete(id);
-  const ps = t.objectStore('photos'); const keys = await rq(ps.index('expenseId').getAllKeys(id)); keys.forEach(k => ps.delete(k)); }); }
+const DAY = 864e5, KEEP_DAYS = 30;
+const liveExpenses = async () => (await allExpenses()).filter(e => !e.deletedAt);
+const trashExpenses = async () => (await allExpenses()).filter(e => e.deletedAt);
+async function setDeleted(ids, when){ const all = await allExpenses(); const hit = all.filter(e => ids.includes(e.id));
+  await tx(['expenses'], 'readwrite', tr => { const s = tr.objectStore('expenses'); hit.forEach(e => { e.deletedAt = when; s.put(e); }); }); }
+const softDelete = ids => setDeleted(ids, new Date().toISOString());
+const restoreExpenses = ids => setDeleted(ids, null);
+async function hardDelete(ids){ const keys = [];
+  for (const id of ids) keys.push(...await tx(['photos'], 'readonly', t => rq(t.objectStore('photos').index('expenseId').getAllKeys(id))));
+  await tx(['expenses','photos'], 'readwrite', t => { ids.forEach(id => t.objectStore('expenses').delete(id)); keys.forEach(k => t.objectStore('photos').delete(k)); }); }
+async function purgeOld(){ const old = (await trashExpenses()).filter(e => Date.now() - Date.parse(e.deletedAt) > KEEP_DAYS * DAY).map(e => e.id); if (old.length) await hardDelete(old); }
 
 /* ---------- image handling ---------- */
 async function processImage(file){
@@ -168,7 +184,7 @@ async function thumbOf(blob){
 
 /* ---------- form (used for both Add and Edit) ---------- */
 let known = {projects:[], currencies:[]};
-async function refreshKnown(){ const ex = await allExpenses(); const cnt = (k) => { const m = {}; ex.forEach(e => { if (e[k]) m[e[k]] = (m[e[k]]||0) + 1; });
+async function refreshKnown(){ const ex = await liveExpenses(); const cnt = (k) => { const m = {}; ex.forEach(e => { if (e[k]) m[e[k]] = (m[e[k]]||0) + 1; });
   return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(x=>x[0]); }; known = {projects:cnt('project'), currencies:cnt('currency')}; }
 
 function formHtml(v, editing){
@@ -230,20 +246,47 @@ async function renderAdd(){
     await renderAdd(); updateBadge(); }); }
 
 /* ---------- Log tab ---------- */
+let logView = 'list', selMode = false; const picked = new Set(); let logIds = [];
 async function renderLog(){
-  const ex = (await allExpenses()).sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+  const trash = logView === 'deleted';
+  const ex = (trash ? await trashExpenses() : await liveExpenses()).sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+  const trashN = trash ? ex.length : (await trashExpenses()).length;
+  logIds = ex.map(e => e.id); [...picked].forEach(id => { if (!logIds.includes(id)) picked.delete(id); });
+  const selecting = selMode || trash;
+  const head = $('#logHead');
+  head.innerHTML = `<h1>${trash ? 'Recently deleted' : 'Expenses'}</h1>` + (trash ? '<button class="sec" id="hBack">Back</button>' : '') + (ex.length ? `<button class="sec" id="hSel">${selecting && !trash ? 'Cancel' : trash ? (picked.size === ex.length ? 'Clear' : 'Select all') : 'Select'}</button>` : '');
+  if (selecting && !trash && ex.length) { head.insertAdjacentHTML('beforeend', `<button class="sec" id="hAll">${picked.size === ex.length ? 'Clear' : 'All'}</button>`); }
   const pending = ex.filter(e => !e.exportedAt).length;
-  $('#logSummary').textContent = ex.length ? `${ex.length} expenses, ${pending} not yet exported` : '';
+  $('#logSummary').textContent = trash ? `Items are removed for good ${KEEP_DAYS} days after deletion. They are not included in exports.` : ex.length ? `${ex.length} expenses, ${pending} not yet exported` : '';
   const list = $('#logList');
-  if (!ex.length) { list.innerHTML = '<p class="note" style="padding:12px">Nothing logged yet.</p>'; return; }
-  list.innerHTML = '';
-  ex.forEach(e => { const d = document.createElement('div'); d.className = 'item'; d.tabIndex = 0;
-    const u = e.thumb ? URL.createObjectURL(e.thumb) : null;
-    d.innerHTML = (u ? `<img alt="" src="${u}">` : '<div class="nophoto">no photo</div>') +
-      `<div class="mid"><div><b>${esc(e.project || '(no project)')}</b>${e.exportedAt ? '' : '<span class="tag">new</span>'}</div><div class="sub">${esc(e.date)}${e.note ? ' · ' + esc(e.note) : ''}${e.photoCount > 1 ? ' · ' + e.photoCount + ' photos' : ''}</div></div>` +
-      `<div class="amt">${esc(Number(e.amount).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:3}))} ${esc(e.currency)}</div>`;
-    d.onclick = () => openEditor(e.id); list.appendChild(d); }); }
-async function updateBadge(){ const ex = await allExpenses(); const n = ex.filter(e => !e.exportedAt).length; $('#logBadge').textContent = n ? `(${n})` : ''; }
+  if (!ex.length) list.innerHTML = `<p class="note" style="padding:12px">${trash ? 'Nothing deleted.' : 'Nothing logged yet.'}</p>`;
+  else { list.innerHTML = '';
+    ex.forEach(e => { const d = document.createElement('div'); d.className = 'item' + (picked.has(e.id) ? ' picked' : ''); d.tabIndex = 0;
+      const u = e.thumb ? URL.createObjectURL(e.thumb) : null;
+      const left = trash ? Math.max(0, KEEP_DAYS - Math.floor((Date.now() - Date.parse(e.deletedAt)) / DAY)) : 0;
+      d.innerHTML = (selecting ? '<div class="ck">&#10003;</div>' : '') + (u ? `<img alt="" src="${u}">` : '<div class="nophoto">no photo</div>') +
+        `<div class="mid"><div><b>${esc(e.project || '(no project)')}</b>${!trash && !e.exportedAt ? '<span class="tag">new</span>' : ''}</div><div class="sub">${esc(e.date)}${e.note ? ' &middot; ' + esc(e.note) : ''}${e.photoCount > 1 ? ' &middot; ' + e.photoCount + ' photos' : ''}${trash ? ' &middot; ' + left + ' days left' : ''}</div></div>` +
+        `<div class="amt">${esc(Number(e.amount).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:3}))} ${esc(e.currency)}</div>`;
+      d.onclick = () => { if (selecting) { picked.has(e.id) ? picked.delete(e.id) : picked.add(e.id); renderLog(); } else openEditor(e.id); };
+      list.appendChild(d); }); }
+  $('#logFoot').innerHTML = !trash && trashN ? `<button class="sec" id="fTrash" style="width:100%">Recently deleted (${trashN})</button>` : '';
+  $('#logSpacer').style.height = selecting && ex.length ? '80px' : '0';
+  const bar = $('#actionBar'), n = picked.size;
+  if (selecting && ex.length && !$('#tab-log').classList.contains('hidden')) { bar.classList.remove('hidden');
+    bar.innerHTML = trash ? `<button id="aRestore" ${n ? '' : 'disabled'}>Restore${n ? ' (' + n + ')' : ''}</button><button class="danger" id="aForever" ${n ? '' : 'disabled'}>Delete forever${n ? ' (' + n + ')' : ''}</button>`
+      : `<button class="danger" id="aDelete" ${n ? '' : 'disabled'}>Delete${n ? ' (' + n + ')' : ''}</button>`; } else bar.classList.add('hidden');
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('#hSel', () => { if (trash) { if (picked.size === ex.length) picked.clear(); else logIds.forEach(i => picked.add(i)); } else { selMode = !selMode; picked.clear(); } renderLog(); });
+  on('#hAll', () => { if (picked.size === ex.length) picked.clear(); else logIds.forEach(i => picked.add(i)); renderLog(); });
+  on('#hBack', () => { logView = 'list'; selMode = false; picked.clear(); renderLog(); });
+  on('#fTrash', () => { logView = 'deleted'; selMode = false; picked.clear(); renderLog(); window.scrollTo(0, 0); });
+  on('#aDelete', async () => { const ids = [...picked]; if (!ids.length) return; if (!confirm(`Move ${ids.length} expense${ids.length > 1 ? 's' : ''} to Recently deleted? You can restore them for ${KEEP_DAYS} days.`)) return;
+    await softDelete(ids); picked.clear(); selMode = false; toast(`${ids.length} moved to Recently deleted`); refreshAll(); });
+  on('#aRestore', async () => { const ids = [...picked]; await restoreExpenses(ids); picked.clear(); toast(`${ids.length} restored`); refreshAll(); });
+  on('#aForever', async () => { const ids = [...picked]; if (!ids.length) return; if (!confirm(`Permanently delete ${ids.length} expense${ids.length > 1 ? 's' : ''} and their photos? This cannot be undone.`)) return;
+    await hardDelete(ids); picked.clear(); toast('Deleted for good'); refreshAll(); });
+}
+async function updateBadge(){ const ex = await liveExpenses(); const n = ex.filter(e => !e.exportedAt).length; $('#logBadge').textContent = n ? `(${n})` : ''; }
 
 /* ---------- Editor ---------- */
 async function openEditor(id){
@@ -252,11 +295,11 @@ async function openEditor(id){
   const existing = (await photosFor(id)).map(p => ({id:p.id, blob:p.blob, thumb:p.blob}));
   const st = {existing, added:[], removed:[], urls:[]};
   const ed = $('#editor'); ed.classList.remove('hidden');
-  ed.innerHTML = `<main><div class="row" style="align-items:center;margin-bottom:6px"><h1 style="margin:0">Edit expense</h1><button class="sec" id="edClose" style="flex:none;min-width:90px">Close</button></div><form id="edForm" autocomplete="off" novalidate></form><button class="danger big" id="edDel">Delete this expense</button></main>`;
+  ed.innerHTML = `<main><div class="row" style="align-items:center;margin-bottom:6px"><h1 style="margin:0">Edit expense</h1><button class="sec" id="edClose" style="flex:none;min-width:90px">Close</button></div><form id="edForm" autocomplete="off" novalidate></form><button class="danger big" id="edDel">Delete expense</button></main>`;
   const f = $('#edForm'); f.innerHTML = formHtml({date:e.date, project:e.project, currency:e.currency, amount:String(e.amount), note:e.note}, true);
   const close = () => { ed.classList.add('hidden'); ed.innerHTML = ''; st.urls.forEach(URL.revokeObjectURL); refreshAll(); };
   $('#edClose').onclick = close;
-  $('#edDel').onclick = async () => { if (confirm('Delete this expense and its photos from this phone? This cannot be undone.')) { await deleteExpense(id); toast('Deleted'); close(); } };
+  $('#edDel').onclick = async () => { if (confirm('Move this expense to Recently deleted? You can restore it for 30 days.')) { await softDelete([id]); toast('Moved to Recently deleted'); close(); } };
   wireForm(f, st, async v => {
     const all = [...st.existing, ...st.added];
     const first = all[0]; const thumb = first ? (first.id != null ? await thumbOf(first.blob) : await thumbOf(first.blob)) : null;
@@ -285,7 +328,7 @@ const slug = s => String(s || 'none').normalize('NFKD').replace(/[^\w]+/g, '-').
 
 let lastZip = null;
 async function buildZip(onlyNew){
-  const all = (await allExpenses()).sort((a,b) => a.id - b.id);
+  const all = (await liveExpenses()).sort((a,b) => a.id - b.id);
   const ex = onlyNew ? all.filter(e => !e.exportedAt) : all;
   if (!ex.length) { toast('Nothing to export'); return; }
   const out = $('#exportResult'); out.innerHTML = '<p class="note">Building zip&hellip;</p>';
@@ -313,27 +356,30 @@ async function shareZip(){ if (!lastZip) return; const file = new File([lastZip.
     else downloadZip(); } catch (e) { if (e.name !== 'AbortError') downloadZip(); } }
 async function downloadZip(){ if (!lastZip) return; const a = document.createElement('a'); a.href = URL.createObjectURL(lastZip.blob); a.download = lastZip.fname; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); await markExported(lastZip.ids); }
 
-async function renderExport(){ const ex = await allExpenses(); const n = ex.filter(e => !e.exportedAt).length;
+async function renderExport(){ const ex = await liveExpenses(); const n = ex.filter(e => !e.exportedAt).length;
   $('#exportCounts').textContent = `${ex.length} expenses logged, ${n} not yet exported.`; $('#btnNew').disabled = !n; $('#btnAll').disabled = !ex.length; $('#btnNew').textContent = `Build zip: ${n} not yet exported`;
   let info = ''; try { if (navigator.storage?.estimate) { const s = await navigator.storage.estimate(); info += `Using ${(s.usage/1e6).toFixed(1)} MB. `; }
     const p = navigator.storage?.persisted ? await navigator.storage.persisted() : null;
-    info += p ? 'Storage is protected from automatic clean-up.' : window.navigator.standalone ? 'Storage protection not confirmed; export regularly.' : 'Add this app to your Home Screen (Share, then Add to Home Screen) so iOS keeps your data safely.'; } catch (e) {}
+    info += p ? 'Storage is protected from automatic clean-up.' : window.navigator.standalone ? 'Storage protection not confirmed; export regularly.' : (isAndroid ? 'Install this app (\u22ee menu, then Install app) so Android keeps your data safely.' : 'Add this app to your Home Screen (Share, then Add to Home Screen) so iOS keeps your data safely.'); } catch (e) {}
   $('#storageInfo').textContent = info; }
 $('#btnNew').onclick = () => buildZip(true); $('#btnAll').onclick = () => buildZip(false);
 
 /* ---------- navigation / lifecycle ---------- */
-function showTab(t){ ['add','log','export'].forEach(k => $('#tab-' + k).classList.toggle('hidden', k !== t)); document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+function showTab(t){ if (t !== 'log') { $('#actionBar').classList.add('hidden'); } else if (logView === 'list') { selMode = false; picked.clear(); } ['add','log','export'].forEach(k => $('#tab-' + k).classList.toggle('hidden', k !== t)); document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   if (t === 'log') renderLog(); if (t === 'export') renderExport(); if (t === 'add') renderAddBanner(); window.scrollTo(0, 0); }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 function refreshAll(){ updateBadge(); if (!$('#tab-log').classList.contains('hidden')) renderLog(); if (!$('#tab-export').classList.contains('hidden')) renderExport(); }
+const isAndroid = /Android/i.test(navigator.userAgent); let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; renderAddBanner(); });
 let persistAsked = false; async function askPersist(){ if (persistAsked) return; persistAsked = true; try { await navigator.storage?.persist?.(); } catch (e) {} }
-async function renderAddBanner(){ const ex = await allExpenses(); const n = ex.filter(e => !e.exportedAt).length; const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  let h = ''; if (!standalone) h += '<div class="banner">For safe offline use: tap Share, then <b>Add to Home Screen</b>, and open it from there.</div>';
-  if (n >= 15) h += `<div class="banner">${n} expenses are not yet exported. Consider exporting a zip as a backup.</div>`; $('#bannerAdd').innerHTML = h; }
+async function renderAddBanner(){ const ex = await liveExpenses(); const n = ex.filter(e => !e.exportedAt).length; const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  let h = ''; if (!standalone) h += isAndroid ? `<div class="banner">For safe offline use, install it: ${deferredInstall ? '<button id="btnInstall" style="min-height:36px;padding:6px 12px;margin-left:6px">Install app</button>' : 'tap the <b>&#8942;</b> menu, then <b>Install app</b> (or <b>Add to Home screen</b>), and open it from there.'}</div>` : '<div class="banner">For safe offline use: tap Share, then <b>Add to Home Screen</b>, and open it from there.</div>';
+  if (n >= 15) h += `<div class="banner">${n} expenses are not yet exported. Consider exporting a zip as a backup.</div>`; $('#bannerAdd').innerHTML = h; const bi = $('#btnInstall'); if (bi) bi.onclick = async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; renderAddBanner(); }; }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('#tab-add').classList.contains('hidden')) { const d = $('#addForm [name=date]'); if (d && !addDirty()) d.value = todayStr(); } });
 function addDirty(){ const f = $('#addForm'); return !!(f.amount.value || addState.added.length); }
 
 (async () => { try { db = await openDB(); } catch (e) { document.body.innerHTML = '<main><h1>Storage unavailable</h1><p>This browser blocked local storage (private browsing?). Open the app in a normal Safari tab or from the Home Screen.</p></main>'; return; }
+  try { await purgeOld(); } catch (e) {}
   await renderAdd(); updateBadge(); renderAddBanner();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}); })();
 </script>
